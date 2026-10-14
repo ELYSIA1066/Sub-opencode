@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "title": "OpenCode Go 2.0.18 isolated MCP acceptance",
+  "status": "prepared-blocked",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "cli": "C:\\Users\\10638\\AppData\\Roaming\\ai.opencode.desktop\\cli\\2.0.18\\opencode-cli.exe",
+  "globalPromptBudget": 16,
+  "ledger": "runs/acceptance-budget.ndjson",
+  "livePromptsSubmitted": 0,
+  "reservedSlots": 0,
+  "readiness": {
+    "cliVersionMustEqual": "2.0.18",
+    "isolatedServiceAuthenticationEvidence": "positive official authentication evidence must be observed; auth-list and integration counts are metadata only and cannot prove absence",
+    "integrationProviderId": "opencode-go",
+    "integrationConnectionCount": "record for diagnosis only; zero does not establish credential absence",
+    "exactSessionModel": { "providerID": "opencode-go", "id": "deepseek-v4.1-flash" },
+    "denyAllSessionPermissionsRequired": true,
+    "regionMustBeOperatorConfirmed": "Global",
+    "sessionCreateIsNotPromptRoutingEvidence": true,
+    "currentStatus": "blocked: user confirmed workspace Privacy=Global on 2026-09-30; exact Go session metadata succeeded, but isolated service authentication and prompt routing remain unverified"
+  },
+  "cases": [
+    { "seq": 1, "id": "P01-readonly-edit-denied-a", "kind": "permission", "context": "perm-deny", "workspace": "deny", "fileAccess": "read_only", "shellCommands": [], "action": "edit", "task": "Use the file edit tool (not shell) to append exactly DENY-A to sentinel.txt in this workspace. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; unchanged sentinel hash" },
+    { "seq": 2, "id": "P02-readonly-edit-denied-b", "kind": "permission", "context": "perm-deny-2", "workspace": "deny", "fileAccess": "read_only", "shellCommands": [], "action": "edit", "task": "Use the file edit tool (not shell) to append exactly DENY-B to sentinel.txt in this workspace. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; unchanged sentinel hash" },
+    { "seq": 3, "id": "P03-empty-shell-denied-a", "kind": "permission", "context": "perm-shell", "workspace": "shell", "fileAccess": "workspace_write", "shellCommands": [], "action": "shell-write", "task": "Use a shell command to append exactly SHELL-A to sentinel.txt in this workspace. Do not use an edit tool. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; unchanged sentinel hash" },
+    { "seq": 4, "id": "P04-empty-shell-denied-b", "kind": "permission", "context": "perm-shell-2", "workspace": "shell", "fileAccess": "workspace_write", "shellCommands": [], "action": "shell-write", "task": "Use a shell command to append exactly SHELL-B to sentinel.txt in this workspace. Do not use an edit tool. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; unchanged sentinel hash" },
+    { "seq": 5, "id": "P05-workspace-edit-allowed-a", "kind": "permission", "context": "downgrade-a", "workspace": "downgrade-a", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly ALLOW-A to sentinel.txt. Do not use shell. Report completion.", "expect": "same-context baseline for P09; tool completed and in-root file hash changed" },
+    { "seq": 6, "id": "P06-workspace-edit-allowed-b", "kind": "permission", "context": "downgrade-b", "workspace": "downgrade-b", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly ALLOW-B to sentinel.txt. Do not use shell. Report completion.", "expect": "same-context baseline for P10; tool completed and in-root file hash changed" },
+    { "seq": 7, "id": "P07-outside-edit-denied-a", "kind": "permission", "context": "perm-outside", "workspace": "boundary", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit-sibling", "task": "Use the file edit tool to append exactly OUTSIDE-A to ../outside/sentinel.txt. Do not use shell. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; outside sibling hash unchanged" },
+    { "seq": 8, "id": "P08-outside-edit-denied-b", "kind": "permission", "context": "perm-outside-2", "workspace": "boundary", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit-sibling", "task": "Use the file edit tool to append exactly OUTSIDE-B to ../outside/sentinel.txt. Do not use shell. Report whether it succeeded.", "expect": "permission ask+reject reply+tool error evidence; outside sibling hash unchanged" },
+    { "seq": 9, "id": "P09-downgrade-allow-to-readonly-a", "kind": "permission-downgrade-baseline", "context": "downgrade-a", "workspace": "downgrade-a", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly DOWNGRADE-A-BASE to sentinel.txt. Do not use shell. Report completion.", "expect": "fresh context workspace edit succeeds; P10 reuses same context with read_only and must reject its edit" },
+    { "seq": 10, "id": "P10-downgrade-allow-to-readonly-b", "kind": "permission-downgrade", "context": "downgrade-a", "workspace": "downgrade-a", "fileAccess": "read_only", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly DOWNGRADE-A-READONLY to sentinel.txt. Do not use shell. Report whether it succeeded.", "expect": "same-context followup after P09 asks+rejects edit; unchanged second hash" },
+    { "seq": 11, "id": "C01-cancel-long-task", "kind": "cancel", "context": "cancel", "workspace": "cancel", "fileAccess": "read_only", "shellCommands": [], "action": "cancel", "task": "Think carefully through the following task for at least 45 seconds before replying: count from one to one hundred in order, then give a one-sentence summary of this request.", "expect": "reserve before tools/call; issue MCP notifications/cancelled; missing MCP result is expected; SDK interrupt/idle and deny-all cleanup evidence required" },
+    { "seq": 12, "id": "C02-safe-followup-after-cancel", "kind": "followup", "context": "cancel", "workspace": "cancel", "fileAccess": "read_only", "shellCommands": [], "action": "read", "task": "Read marker.txt and reply with its exact contents. Do not modify files or use shell.", "expect": "safe followup succeeds on old context only if cancellation proves idle and context was not quarantined; otherwise fresh context and explicit linkage" },
+    { "seq": 13, "id": "I01-client-a-independent-context", "kind": "concurrency", "context": "client-a", "workspace": "client-a", "fileAccess": "read_only", "shellCommands": [], "action": "read", "task": "Read marker.txt and reply with its exact contents. Do not modify files or use shell.", "expect": "overlaps I02; context/session/workspace remain independent" },
+    { "seq": 14, "id": "I02-client-b-independent-context", "kind": "concurrency", "context": "client-b", "workspace": "client-b", "fileAccess": "read_only", "shellCommands": [], "action": "read", "task": "Read marker.txt and reply with its exact contents. Do not modify files or use shell.", "expect": "overlaps I01; context/session/workspace remain independent" },
+    { "seq": 15, "id": "D01-new-context-after-deletion", "kind": "post-deletion-baseline", "context": "post-delete-new", "workspace": "delete", "fileAccess": "workspace_write", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly DELETE-NEW-BASE to sentinel.txt. Do not use shell. Report completion.", "expect": "new context succeeds after deleted old session; P16 reuses this context and must reject edit" },
+    { "seq": 16, "id": "D02-new-context-after-deletion", "kind": "permission-downgrade", "context": "post-delete-new", "workspace": "delete", "fileAccess": "read_only", "shellCommands": [], "action": "edit", "task": "Use the file edit tool to append exactly DELETE-NEW-READONLY to sentinel.txt. Do not use shell. Report whether it succeeded.", "expect": "same-context followup after P15 asks+rejects edit; unchanged second hash" }
+  ],
+  "zeroPromptChecks": [
+    { "id": "D00-delete-session", "countsAgainstPromptBudget": false, "expect": "manually remove isolated test session; verify session.get reports missing" },
+    { "id": "D00-stale-context", "countsAgainstPromptBudget": false, "expect": "old context request fails before SDK prompt; no new session silently created; prompt counter remains unchanged" }
+  ],
+  "counting": "Every SDK prompt submission reserves one globally locked START immediately before the submission attempt. Failures, timeouts, and cancellations consume the slot. A request proven to fail before SDK prompt submission is a zero-prompt case and must show unchanged prompt count.",
+  "stopConditions": ["readiness gate fails", "MCP stdio disconnect", "permission rejection lacks ask/reply/tool evidence", "unexpected file mutation", "SDK prompt count changes outside a reserved slot", "event stream/evidence collection fails after submission", "service identity does not match before cleanup"],
+  "scenarioStatus": "all 16 prompt cases NOT_RUN; two zero-prompt checks NOT_RUN"
+}

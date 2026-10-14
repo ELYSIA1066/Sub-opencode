@@ -1,0 +1,31 @@
+{
+  "name": "codex-subagent-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "tsx src/mcp.ts",
+    "mcp": "tsx src/mcp.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "service:prepare": "node --import tsx tools/service-prepare.ts",
+    "acceptance:offline": "node --import tsx tools/acceptance/cli.ts offline",
+    "acceptance:permission-probe": "node --import tsx tools/acceptance/permission-probe.ts",
+    "acceptance:preflight": "node --import tsx tools/acceptance/cli.ts preflight",
+    "acceptance:live": "node --import tsx tools/acceptance/cli.ts live"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@opencode/client": "^2.0.18",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^5.0.1"
+  }
+}
