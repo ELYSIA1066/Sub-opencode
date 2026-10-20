@@ -39,12 +39,17 @@ Codex 的 MCP 配置示例（按实际安装位置修改路径）：
 
 ```toml
 [mcp_servers.opencode-agent]
+tool_timeout_sec = 18030
 command = "node"
 args = ["D:/codexprojects/codex-subagent-opencode/node_modules/tsx/dist/cli.mjs", "D:/codexprojects/codex-subagent-opencode/src/mcp.ts"]
 env = { OPENCODE_COMMAND = "C:/path/to/opencode-cli.exe" }
 ```
 
 若 OpenCode CLI 已加入 `PATH`，可省略 `env`。否则将 `OPENCODE_COMMAND` 指向 OpenCode CLI 可执行文件；服务发现可以复用 Desktop 的已注册服务，但返回的终端连接命令也会使用此路径。
+
+`tool_timeout_sec = 18030` 为调用方预留默认 5 小时任务期限及回收余量；修改后需重新加载 Codex 的 MCP 连接。若提高 `OPENCODE_PROMPT_TIMEOUT_MS`，调用方期限也应相应提高。`functions.exec` 的 yield/wait 只控制观察结果的时机，不延长 MCP 工具调用期限。
+
+SDK 对携带 AbortSignal 的请求使用独立 HTTP dispatcher，禁用 Node 默认的 300 秒响应头／响应体空闲超时，由任务期限、取消及独立清理期限控制等待。无 signal 的健康检查保留默认 HTTP 限制；不修改全局 dispatcher。连接失效或关闭时销毁自己的 dispatcher，不重试 prompt，不停止共享服务。
 
 ## 工具
 

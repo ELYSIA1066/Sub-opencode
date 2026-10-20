@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
-import { OpenCode, type OpenCodeClient } from '@opencode/client'
+import type { OpenCodeClient } from '@opencode/client'
 import { Service } from '@opencode/client/service'
 import { isCompatibleServiceVersion } from './service-registry.js'
+import { createSdkClient, disposeSdkClient } from './sdk-transport.js'
 
 /**
  * The one module responsible for reusing a healthy, already-registered OpenCode background
@@ -57,7 +58,7 @@ export class SharedConnection {
   constructor(options: SharedConnectionOptions) {
     this.registryFile = options.registryFile
     this.discover = options.discover ?? Service.discover
-    this.createClient = options.createClient ?? ((baseUrl, headers) => OpenCode.make({ baseUrl, headers }))
+    this.createClient = options.createClient ?? createSdkClient
     this.pidState = options.pidState ?? defaultPidState
   }
 
@@ -210,6 +211,7 @@ export class SharedConnection {
   }
 
   private clear(): void {
+    if (this.client) disposeSdkClient(this.client)
     this.generation += 1
     this.snapshot = undefined
     this.client = undefined

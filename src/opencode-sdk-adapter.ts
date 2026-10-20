@@ -1,7 +1,8 @@
-import { OpenCode, type OpenCodeClient } from '@opencode/client'
+import type { OpenCodeClient } from '@opencode/client'
+import { createSdkClient } from './sdk-transport.js'
 
 export function createOpenCodeClient(baseUrl: string, headers: HeadersInit): OpenCodeClient {
-  return OpenCode.make({ baseUrl, headers })
+  return createSdkClient(baseUrl, headers)
 }
 
 /**
