@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { OpenCode, type OpenCodeClient } from '@opencode/client'
 import { Service } from '@opencode/client/service'
+import { isCompatibleServiceVersion } from './service-registry.js'
 
 /**
  * The one module responsible for reusing a healthy, already-registered OpenCode background
@@ -61,7 +62,7 @@ export class SharedConnection {
   }
 
   /**
-   * Read the shared registration, confirm it is a live loopback v2 service of the registered
+   * Read the shared registration, confirm it is a live SDK-compatible loopback service of the registered
    * identity, and return a verified SDK client. Every call re-reads the registration and re-runs
    * the read-only discover and `server.info` health checks, even when a cached client is reused.
    * Any change, mismatch, or probe failure clears the cache and fails closed. A later explicit
@@ -178,7 +179,7 @@ export class SharedConnection {
     const identity = parseIdentity(record, this.registryFile)
     if (!identity) throw this.failure('The shared OpenCode service registration is missing required identity fields.')
     if (!isLoopbackOrigin(identity.url)) throw this.failure('The shared OpenCode service URL must be a credential-free HTTP(S) loopback origin.')
-    if (!/^2\./u.test(identity.version)) throw this.failure('The shared OpenCode service registration is not a compatible v2 service.')
+    if (!isCompatibleServiceVersion(identity.version)) throw this.failure('The shared OpenCode service version is not compatible with the installed SDK.')
     if (this.pidStateSafely(identity.pid) !== 'alive') {
       throw this.failure('The registered OpenCode service process is not confirmed alive.')
     }

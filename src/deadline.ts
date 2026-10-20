@@ -24,16 +24,16 @@ export function trackOperation<T>(promise: Promise<T>, operations: Set<Promise<u
   return tracked
 }
 
-export function awaitBefore<T>(promise: Promise<T>, deadline: number): Promise<T> {
+export function awaitBefore<T>(promise: Promise<T>, deadline: number, timeoutError: Error = new Error('Operation exceeded its deadline.')): Promise<T> {
   const remaining = deadline - Date.now()
   if (remaining <= 0) {
     void promise.catch(() => undefined)
-    return Promise.reject(new Error('Operation exceeded its deadline.'))
+    return Promise.reject(timeoutError)
   }
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Operation exceeded its deadline.')), remaining) }),
+    new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeoutError), remaining) }),
   ]).finally(() => { if (timer) clearTimeout(timer) })
 }
 

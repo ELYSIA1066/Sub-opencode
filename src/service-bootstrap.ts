@@ -1,15 +1,15 @@
 import { spawn, execFile } from 'node:child_process'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { SharedConnection, type SharedConnectionIdentity } from './shared-connection.js'
-import { isRegistryRecord } from './service-registry.js'
+import { isCompatibleServiceVersion, isRegistryRecord, stableVersion } from './service-registry.js'
 import { awaitBefore, raceAbort } from './deadline.js'
 
 export const SHARED_REGISTRY = join(homedir(), '.local', 'state', 'opencode', 'service.json')
-export const SERVICE_CLI = join(homedir(), 'AppData', 'Roaming', 'ai.opencode.desktop', 'cli', '2.0.18', 'opencode-cli.exe')
+export const SERVICE_CLI_ROOT = join(homedir(), 'AppData', 'Roaming', 'ai.opencode.desktop', 'cli')
 export const SERVICE_ARGS = ['serve', '--hostname', '127.0.0.1', '--port', '0'] as const
 const fileHelper = fileURLToPath(new URL('./service-registry-file.ps1', import.meta.url))
 const digest = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
@@ -19,7 +19,7 @@ export class PrepareError extends Error {
   constructor(readonly code: string, readonly unresolvedLaunch = false) { super(code); this.name = 'PrepareError' }
 }
 export type ProcessSnapshot = { state: 'dead' | 'alive' | 'unknown'; startedAt?: number; executable?: string }
-export type OwnedService = { pid: number; url: string; password: string; stop: (deadline: number) => Promise<boolean>; detach: () => void }
+export type OwnedService = { pid: number; url: string; version: string; password: string; stop: (deadline: number) => Promise<boolean>; detach: () => void }
 export type Prepared = { source: 'reused' | 'started'; identity: SharedConnectionIdentity; startedPid?: number; backupPath?: string; recoveryReason?: 'pid_exited' | 'pid_reused'; promptSubmissions: 0 }
 type Operation = { deadline: number; signal: AbortSignal }
 export type PrepareDependencies = {
@@ -44,7 +44,7 @@ function check(operation: Operation) {
 }
 async function bounded<T>(promise: Promise<T>, operation: Operation): Promise<T> {
   check(operation)
-  try { return await raceAbort(awaitBefore(promise, operation.deadline), operation.signal) }
+  try { return await raceAbort(awaitBefore(promise, operation.deadline, new PrepareError('prepare_timeout')), operation.signal) }
   catch (error) { if (operation.signal.aborted) throw operation.signal.reason; if (Date.now() >= operation.deadline) throw new PrepareError('prepare_timeout'); throw error }
 }
 async function powershell(args: string[], operation: Operation): Promise<string> {
@@ -96,20 +96,35 @@ export async function listeningOwnerMatches(identity: SharedConnectionIdentity, 
   const owners = await listenerPids(identity.url, { deadline: Date.now() + remainingMs, signal: AbortSignal.timeout(remainingMs) })
   return owners.length > 0 && owners.every((pid) => pid === identity.pid)
 }
+export function selectServiceCli(root = SERVICE_CLI_ROOT): { file: string; version: string } {
+  if (!existsSync(root)) throw new PrepareError('cli_missing')
+  const candidates = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && isCompatibleServiceVersion(entry.name))
+    .map((entry) => ({ file: join(root, entry.name, 'opencode-cli.exe'), version: entry.name }))
+    .filter(({ file }) => existsSync(file) && lstatSync(file).isFile() && !lstatSync(file).isSymbolicLink())
+    .sort((a, b) => {
+      const left = stableVersion(a.version)!, right = stableVersion(b.version)!
+      for (let index = 0; index < left.length; index++) if (left[index] !== right[index]) return right[index] - left[index]
+      return 0
+    })
+  if (!candidates[0]) throw new PrepareError('cli_missing_or_incompatible')
+  return candidates[0]
+}
 async function launchOfficialCli(env: NodeJS.ProcessEnv, operation: Operation): Promise<OwnedService> {
   check(operation)
-  if (!existsSync(SERVICE_CLI)) throw new PrepareError('cli_missing')
-  const version = await new Promise<string>((res, rej) => execFile(SERVICE_CLI, ['--version'],
+  const selected = selectServiceCli()
+  const output = await new Promise<string>((res, rej) => execFile(selected.file, ['--version'],
     { env, windowsHide: true, signal: operation.signal, timeout: Math.max(1, operation.deadline - Date.now()), maxBuffer: 4096 },
     (error, stdout) => error ? rej(new PrepareError('cli_version_unavailable')) : res(stdout.trim())))
-  if (!/^(?:opencode v)?2\.0\.18$/u.test(version)) throw new PrepareError('cli_version_mismatch')
+  const version = /^(?:opencode v)?(.+)$/u.exec(output)?.[1]
+  if (version !== selected.version || !isCompatibleServiceVersion(version)) throw new PrepareError('cli_version_mismatch')
   check(operation)
   const password = randomBytes(32).toString('base64url')
   const childEnv: NodeJS.ProcessEnv = { ...env }
   for (const key of Object.keys(childEnv)) if (['opencode_password', 'opencode_server_password'].includes(key.toLowerCase())) delete childEnv[key]
   childEnv.OPENCODE_SERVER_PASSWORD = password
-  const child = spawn(SERVICE_CLI, [...SERVICE_ARGS], { env: childEnv, cwd: homedir(), detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
-  let output = ''
+  const child = spawn(selected.file, [...SERVICE_ARGS], { env: childEnv, cwd: homedir(), detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  let serverOutput = ''
   let url = ''
   const detach = () => { child.stdout?.destroy(); child.unref() }
   const stop = async (deadline: number) => {
@@ -125,13 +140,13 @@ async function launchOfficialCli(env: NodeJS.ProcessEnv, operation: Operation): 
       child.once('exit', () => rej(new PrepareError('cli_exited_before_ready')))
       child.stdout?.setEncoding('utf8')
       child.stdout?.on('data', (part: string) => {
-        output = (output + part).slice(-8192)
-        const found = /server listening on (http:\/\/127\.0\.0\.1:\d+)\r?\n/u.exec(output)
+        serverOutput = (serverOutput + part).slice(-8192)
+        const found = /server listening on (http:\/\/127\.0\.0\.1:\d+)\r?\n/u.exec(serverOutput)
         if (found) { url = found[1]; res() }
       })
     }), operation)
     if (!child.pid) throw new PrepareError('cli_pid_unknown')
-    return { pid: child.pid, url, password, stop, detach }
+    return { pid: child.pid, url, version, password, stop, detach }
   } catch (error) {
     // Only our own child handle may be stopped, even when readiness never arrived.
     const stopped = await stop(Date.now() + 1500); detach()
@@ -145,7 +160,7 @@ function readSnapshot(file: string) {
   const bytes = readFileSync(file)
   let record: unknown
   try { record = JSON.parse(bytes.toString('utf8')) } catch { throw new PrepareError('registration_invalid') }
-  if (!isRegistryRecord(record) || record.version !== '2.0.18') throw new PrepareError('registration_invalid_or_incompatible')
+  if (!isRegistryRecord(record) || !isCompatibleServiceVersion(record.version)) throw new PrepareError('registration_invalid_or_incompatible')
   const parsed = new URL(record.url)
   if (parsed.hostname !== '127.0.0.1' || parsed.protocol !== 'http:' || !parsed.port || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/') throw new PrepareError('registration_url_invalid')
   return { bytes, record, modifiedAt: stats.mtimeMs }
@@ -287,9 +302,10 @@ export async function prepareService(options: PrepareOptions): Promise<Prepared>
     launching = deps.launch(options.env, operation).then((service) => { owned = service; return service })
     owned = await bounded(launching, operation)
     check(operation)
+    if (!isCompatibleServiceVersion(owned.version)) throw new PrepareError('cli_version_mismatch')
     if (existsSync(registry)) throw new PrepareError('publication_conflict')
     temporary = registry + '.pending-' + token
-    const record = { id: serviceID, pid: owned.pid, url: owned.url, version: '2.0.18', password: owned.password }
+    const record = { id: serviceID, pid: owned.pid, url: owned.url, version: owned.version, password: owned.password }
     const bytes = Buffer.from(JSON.stringify(record))
     writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 })
     await bounded(deps.protect(temporary, operation), operation)

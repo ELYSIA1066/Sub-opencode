@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path'
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { prepareService, userServiceEnvironment, PrepareError, TaskServicePreparation, staleReason, windowsPowerShellEnvironment, type PrepareOptions, type OwnedService, type ProcessSnapshot } from '../src/service-bootstrap.js'
+import { installedClientVersion } from '../src/service-registry.js'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -15,7 +16,7 @@ function fixture() {
   const write = (row = record) => writeFileSync(file, JSON.stringify(row))
   const processProbe = vi.fn(async (pid: number): Promise<ProcessSnapshot> => pid === process.pid ? { state: 'alive', startedAt: 1, executable: 'C:\\node.exe' } : { state: 'dead' })
   const verify = vi.fn(async (path: string) => { const row = JSON.parse(readFileSync(path, 'utf8')); return { id: row.id, pid: row.pid, url: row.url, version: row.version, registryPath: path } })
-  const owned: OwnedService = { pid: 43, url: 'http://127.0.0.1:4546', password: 'test-private-value', stop: vi.fn(async () => true), detach: vi.fn() }
+  const owned: OwnedService = { pid: 43, url: 'http://127.0.0.1:4546', version: installedClientVersion(), password: 'test-private-value', stop: vi.fn(async () => true), detach: vi.fn() }
   const launch = vi.fn(async () => owned)
   const listeners = vi.fn(async (url: string) => url === record.url ? [42] : [43])
   const move = vi.fn(async (source: string, dest: string, expected: string) => {
@@ -70,10 +71,34 @@ describe('safe shared service preparation', () => {
     expect(await prepareService(f.options)).toMatchObject({ source: 'reused' })
     expect(f.launch).not.toHaveBeenCalled(); expect(f.move).not.toHaveBeenCalled(); expect(readFileSync(f.file)).toEqual(bytes)
   })
+  it.each(['2.0.20', '2.12.123'])('reuses release %s without selecting or starting another CLI', async (version) => {
+    const f = fixture(); f.write({ ...f.record, version }); const bytes = readFileSync(f.file)
+    expect(await prepareService(f.options)).toMatchObject({ source: 'reused', identity: { version } })
+    expect(f.launch).not.toHaveBeenCalled(); expect(f.move).not.toHaveBeenCalled()
+    expect(readFileSync(f.file)).toEqual(bytes)
+  })
+  it('registers the version reported by the started CLI, not the previous service or SDK version', async () => {
+    const f = fixture(); f.owned.version = '2.0.20'
+    const result = await prepareService(f.options)
+    expect(result.identity.version).toBe(f.owned.version)
+    expect(JSON.parse(readFileSync(f.file, 'utf8')).version).toBe(f.owned.version)
+  })
+  it('refuses to publish an incompatible launched service and cleans only its own child', async () => {
+    const f = fixture(); f.owned.version = `${Number(installedClientVersion().split('.')[0]) + 1}.0.0`
+    await expect(prepareService(f.options)).rejects.toMatchObject({ code: 'cli_version_mismatch' })
+    expect(existsSync(f.file)).toBe(false); expect(f.move).not.toHaveBeenCalled()
+    expect(f.owned.stop).toHaveBeenCalledOnce()
+  })
+  it('rejects a service whose reported version does not match its registration', async () => {
+    const f = fixture(); f.write({ ...f.record, version: '2.0.20' })
+    f.verify.mockImplementation(async (path) => ({ id: f.record.id, pid: f.record.pid, url: f.record.url, version: '2.0.21', registryPath: path }))
+    await expect(prepareService(f.options)).rejects.toMatchObject({ code: 'listener_identity_mismatch' })
+    expect(f.launch).not.toHaveBeenCalled(); expect(f.move).not.toHaveBeenCalled()
+  })
   it.each(['malformed', 'incompatible', 'unhealthy-open-code', 'unknown-pid', 'port-in-use'])('preserves %s without launching or moving', async (fault) => {
     const f = fixture(); f.write()
     if (fault === 'malformed') writeFileSync(f.file, 'broken')
-    if (fault === 'incompatible') f.write({ ...f.record, version: '2.0.20' })
+    if (fault === 'incompatible') f.write({ ...f.record, version: `${Number(installedClientVersion().split('.')[0]) + 1}.0.0` })
     if (fault.includes('pid') || fault === 'unhealthy-open-code') {
       f.unhealthy(); f.processProbe.mockImplementation(async (pid) => pid === process.pid ? { state: 'alive', startedAt: 1, executable: 'C:\\node.exe' } : fault === 'unknown-pid' ? { state: 'unknown' } : { state: 'alive', startedAt: Date.now() + 10000, executable: 'C:\\opencode-cli.exe' })
     }

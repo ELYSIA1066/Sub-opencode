@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { prepareService, PrepareError, SHARED_REGISTRY, userServiceEnvironment } from '../src/service-bootstrap.js'
 
-export { prepareService, PrepareError, SHARED_REGISTRY, SERVICE_CLI, SERVICE_ARGS, userServiceEnvironment, listeningOwnerMatches } from '../src/service-bootstrap.js'
+export { prepareService, PrepareError, SHARED_REGISTRY, SERVICE_CLI_ROOT, SERVICE_ARGS, selectServiceCli, userServiceEnvironment, listeningOwnerMatches } from '../src/service-bootstrap.js'
 export type { PrepareOptions } from '../src/service-bootstrap.js'
 
 async function main(): Promise<void> {
